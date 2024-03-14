@@ -63,7 +63,6 @@ def parse_args():
     parser.add_argument("--ema_coeff", type=float, default=0.999)
     parser.add_argument("--distill_coeff", type=float, default=0.1)
     parser.add_argument("--use_adaptive", action="store_true")
-    parser.add_argument("--use_distillation", action="store_true")
 
     # Hard Augmentation
     parser.add_argument("--pseudo_batch_size", type=int, default=1)
@@ -105,7 +104,6 @@ def main(args):
     baseinit_based_method = ["ncfscil", "remind"]
     featuremem_based_method = ["ncfscil", "remind"]
     if args.method in featuremem_based_method:
-        print("return_idx")
         args.return_idx = True
         feature_memory = FeatureMemory(args.feat_mem_size, args.num_classes, device)
     
@@ -236,11 +234,6 @@ def main(args):
                              feat_dim=args.spatial_feat_dim, num_codebooks=args.num_codebooks, codebook_size=args.codebook_size, dataset_name=args.dataset, device=device, train_num=len(train_dataloader))
     model = model.to(device)
 
-    if args.use_distillation:
-        ema_model = copy.deepcopy(model)
-        ema_model.residual_addition=False
-        ema_model.train()
-
     # Optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
@@ -250,8 +243,6 @@ def main(args):
     rt_batch = []
     rt_images = []
     rt_labels = []
-    # Run Training
-    print("method", args.method)
     acc_list = []
     acc_list2 = []
     train_acc_list = []
@@ -283,18 +274,15 @@ def main(args):
 
         if new_class_observe:
             if args.domain_incre_eval:
-                print("observe", test_dataset.observed_labels)
                 model.observe_novel_class(len(test_dataset.observed_labels))
                 optimizer = optim.Adam(model.parameters(), lr=args.lr)
             else:
-                print("observe", test_dataset.observed_labels)
                 model.observe_novel_class(len(test_dataset.observed_labels))
                 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
         current_num_iters += float_num_iters
         
         if current_num_iters >= 1:
-            print("iteration", iteration)
             # Define `before_model_update`` if you want to do something before model update at each iteration
             if getattr(model, "before_model_update_", None) is not None:
                 model.before_model_update_(iter_num=iteration, num_iter=args.num_iters, float_iter=float_num_iters, batch_sampler=batch_sampler)
@@ -308,12 +296,6 @@ def main(args):
             pseudo_cls_interval = min([args.pseudo_cls_interval, args.num_classes - len(test_dataset.observed_labels)])
 
             if iteration != 1 and args.use_pseudo_stream: # and len(test_dataset.observed_labels) > 1:
-                
-                '''
-                pseudo_classes = [(len(test_dataset.observed_labels)-2) // 3, (len(test_dataset.observed_labels)-2) // 3 + 1]
-                if (len(test_dataset.observed_labels)-2) % 3 != 0:
-                    pseudo_classes.append((len(test_dataset.observed_labels)-2) // 3 + 2)
-                '''
                 pseudo_classes = np.random.choice(np.arange(len(test_dataset.observed_labels)), size=min(4, len(test_dataset.observed_labels)), replace=False)
                 pseudo_batch_size = args.batch_size / len(test_dataset.observed_labels)
                 if pseudo_batch_size < 1:
@@ -330,27 +312,6 @@ def main(args):
                         batch_size=len(pseudo_indices),
                         num_workers=1,
                     )
-            '''
-            num_learned_class = len(test_dataset.observed_labels)
-            if num_learned_class <= 3:
-                pseudo_classes = list(range(num_learned_class))
-            else:
-                pseudo_classes = range(num_learned_class-3, num_learned_class)
-            pseudo_batch_size = args.batch_size / len(test_dataset.observed_labels)
-            if pseudo_batch_size < 1:
-                do_pseudo_batch = np.random.rand(1) < pseudo_batch_size
-                pseudo_indices = sum([np.random.choice(v, size=min(1, len(v)), replace=False).tolist() for cls, v in batch_sampler.memory.items() if (cls in pseudo_classes and do_pseudo_batch)], start=[])
-            else:
-                pseudo_batch_size = round(args.batch_size / len(test_dataset.observed_labels))
-                len_pseudo = len(sum([np.random.choice(v, size=min(pseudo_batch_size, len(v)), replace=False).tolist() for cls, v in batch_sampler.memory.items() if (cls in pseudo_classes)], start=[]))
-                pseudo_indice_candidates = sum([v for cls, v in batch_sampler.memory.items() if cls in pseudo_classes], start=[])
-                
-                # ver2
-                # pseudo_indices = np.random.choice(pseudo_indice_candidates, size=min(pseudo_batch_size*6, len(pseudo_indice_candidates)), replace=False).tolist()
-                # ver1
-                # pseudo_indices = np.random.choice(pseudo_indice_candidates, size=min(16, len(pseudo_indice_candidates)), replace=False).tolist()
-                #pseudo_indices = sum([np.random.choice(v, size=min(pseudo_batch_size, len(v)), replace=False).tolist() for cls, v in batch_sampler.memory.items() if (cls in pseudo_classes)], start=[])
-            '''
             
             memory_dataset_train_transform = datasets.get_memory(dataset, batch_sampler.memory_buffers[0], dataset.transform.base_transform, test_dataset.dataset.transform)
             memory_loader_train_transform = torch.utils.data.DataLoader(
@@ -358,13 +319,6 @@ def main(args):
                 batch_size=len(batch_sampler.memory_buffers[0]),
                 num_workers=2,
             )
-            '''
-            
-            with torch.cuda.amp.autocast(True):
-                if args.use_distillation and len(batch[1]) == args.batch_size:
-                    teacher_batch, teacher_feature = ema_model(batch, pseudo_loader=pseudo_loader, pseudo_cls_interval=pseudo_cls_interval, device=device, observed_classes=torch.Tensor(list(test_dataset.observed_labels)).cuda(), return_feature=True)
-                    loss = model(batch, device=device, observed_classes=torch.Tensor(list(test_dataset.observed_labels)).cuda(), feature=teacher_feature, distill_coeff = args.distill_coeff, use_adaptive = args.use_adaptive, teacher_batch=teacher_batch, memory_loader = memory_loader_train_transform)
-            '''
 
             with torch.cuda.amp.autocast(True):
                 if args.method in featuremem_based_method:
@@ -378,11 +332,7 @@ def main(args):
                         feature_memory.update_feature(all_features[:waiting_size], y[:waiting_size].cpu().numpy(), idxs[:waiting_size].cpu().numpy())
 
                 else:
-                    if args.use_distillation and len(batch[1]) == args.batch_size:
-                        teacher_batch, teacher_feature = ema_model(batch, pseudo_loader=pseudo_loader, pseudo_cls_interval=pseudo_cls_interval, device=device, observed_classes=torch.Tensor(list(test_dataset.observed_labels)).cuda(), return_feature=True)
-                        loss = model(batch, device=device, observed_classes=torch.Tensor(list(test_dataset.observed_labels)).cuda(), feature=teacher_feature, distill_coeff=args.distill_coeff, use_adaptive=args.use_adaptive, teacher_batch=teacher_batch, memory=memory_dataset_train_transform)
-                    else:
-                        loss = model(batch, last_iteration=len(train_dataloader)==iteration, pseudo_loader=pseudo_loader, pseudo_cls_interval=pseudo_cls_interval, device=device, optimizer=optimizer, observed_classes=torch.Tensor(list(test_dataset.observed_labels)).cuda(), memory=memory_dataset_train_transform, batch_sampler=train_dataloader.batch_sampler, iteartion=iteration)
+                    loss = model(batch, last_iteration=len(train_dataloader)==iteration, pseudo_loader=pseudo_loader, pseudo_cls_interval=pseudo_cls_interval, device=device, optimizer=optimizer, observed_classes=torch.Tensor(list(test_dataset.observed_labels)).cuda(), memory=memory_dataset_train_transform, batch_sampler=train_dataloader.batch_sampler, iteartion=iteration)
 
             if (args.method in reservoir_based_method or args.method in er_based_method or (args.dataset in ["clear10", "clear100"] and args.method=="etf")) and \
                     iteration % (args.num_iters * batch_sampler.temp_batch_size) == 0:
@@ -430,16 +380,6 @@ def main(args):
             # Define `optimizer_update function` if you want to update optimizer after each iteration
             if getattr(model, "optimizer_update_", None) is not None:
                 model.optimizer_update_(optimizer)
-
-            if args.use_distillation:
-                with torch.no_grad():
-                    ema_inv_ratio_1 = args.ema_coeff
-                    ema_params = OrderedDict(ema_model.named_parameters())
-                    model_params = OrderedDict(model.named_parameters())
-
-                    for name, param in model_params.items():
-                        ema_params[name].sub_((1. - ema_inv_ratio_1) * (ema_params[name] - param))
-
 
             if loss is not None:
                 print(f"[{iteration:6d} / {len(train_dataloader):6d}] [bsz {batch[1].shape[0]}] [loss {loss.item():.4f}]", end="\r")

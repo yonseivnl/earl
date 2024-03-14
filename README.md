@@ -16,6 +16,11 @@ install dataset
 ```bash
 bash cifar10.sh
 ```
+
+## Run Experiments
+```bash
+bash ex.sh
+```
 <!-- 
 - cifar10
 ```bash
