@@ -14,7 +14,7 @@ cd dataset
 install dataset
 - ex. CIFAR-10
 ```bash
-bash cifar10.sh
+bash cifar10.sh 
 ```
 
 ## Run Experiments
