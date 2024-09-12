@@ -19,7 +19,7 @@ bash cifar10.sh
 
 ## Run Experiments
 ```bash
-bash ex.sh
+bash ex.sh 
 ```
 <!-- 
 - cifar10
