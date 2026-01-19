@@ -5,7 +5,7 @@ from typing import Tuple
 import torch
 import copy
 from utils import etf_initialize, dot_regression_accuracy, dynamic_etf_initialize
-from batch_cka import linear_CKA
+# from batch_cka import linear_CKA
 import torch.nn.functional as F
 from ignite.utils import convert_tensor
 from torch.nn.functional import log_softmax
